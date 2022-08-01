@@ -104,6 +104,12 @@ $router->group(['middleware' => ['cors']], function() use($router) {
                 'roles' => ['ADMIN_ROLE']
             ]);
 
+            $router->get('listar', [
+                'uses' => 'AlunoController@listar',
+                'middleware' => ['roles'],
+                'roles' => ['ADMIN_ROLE']
+            ]);
+
             $router->get('perfil', [
                 'uses' => 'AlunoController@perfil',
                 'middleware' => ['roles'],

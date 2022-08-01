@@ -5,12 +5,13 @@ namespace App\Exceptions;
 
 use Exception;
 
-class FormularioException extends Exception {
+class ResponseException extends Exception {
 
     private string $campo;
     private string $mensagem;
 
     function __construct($campo, $mensagem) {
+        parent::__construct($mensagem);
         $this->campo = $campo;
         $this->mensagem = $mensagem;
     }

@@ -10,17 +10,28 @@ use Illuminate\Support\Facades\Hash;
 use TheSeer\Tokenizer\Exception;
 use Illuminate\Validation\ValidationException;
 use App\Models\Role;
+use App\Http\Services\AlunoService;
+use App\Exceptions\ResponseException;
 
 
 class AlunoController extends Controller
 {
+    private AlunoService $service;
+
+    function __construct() {
+        $this->service = new AlunoService();
+    }
+
     public function index(Request $request) {
-        return Aluno::with("user")->paginate($request->per_page);
+        return $this->service->listarComPaginacao($request->per_page);
+    }
+
+    public function listar(Request $request) {
+        return $this->service->listar();
     }
     
     public function store(Request $request) {
         try { 
-
             $this->validate($request, [
                 'nome' => 'required',
                 'data_nascimento' => 'required|date_format:d/m/Y|before:today',
@@ -29,116 +40,68 @@ class AlunoController extends Controller
                 'senha' => 'required|min:6|confirmed',
             ]);
 
-            DB::beginTransaction();
-
-            if(!is_null(User::where('email', $request->email)->first())){
-                return response()->json([
-                    'email' => 'E-mail informado já está cadastrado'
-                ], 404);
-            }
-
-            $user = User::create([
-                'email' => $request->email,
-                'senha' => Hash::make($request->senha),
-            ]);
-            $user->roles()->attach(Role::where('nome', 'USER_ROLE')->first());
-
-            
-            $aluno = Aluno::create([
-                'nome' => $request->nome,
-                'data_nascimento' => $request->data_nascimento,
-                'turma' => $request->turma,
-                'user_id' => $user->id,
-            ]);
-
-            //incluir rotina de envio de email de confirmação
-
-            DB::commit();
-
-            return response()->json($aluno, 201);
+            return response()->json($this->service->salvar($request), 201);
         }
-        catch (ValidationException $e) 
-        {
+        catch (ValidationException $e) {
             DB::rollback();
             return response()->json($e->response->original, 422);
         }
-        catch (\Exception $e) 
-        {
+        catch (ResponseException $e) {
             DB::rollback();
-            return response()->json($e->getTraceAsString(), 400);
+            return response()->json($e->getErro(), 422);
+        }
+        catch (\Exception $e) {
+            DB::rollback();
+            return response()->json($e->getMessage(), 400);
         }
     }
     
-    public function show(int $id)
-    {
-        try
-        {
-            $aluno = Aluno::with('user', 'reservas')->find($id);
-
-            if(is_null($aluno)) {
-                return response()->json([
-                    'erro' => 'Aluno não encontrado'
-                ], 404);
-            }
-            return response()->json($aluno);
+    public function show(int $id) {
+        try {
+            return $this->service->buscar($id);
         }
-        catch (\Exception $e) 
-        {
+        catch (ResponseException $e) {
+            return response()->json($e->getErro(), 400);
+        }
+        catch (\Exception $e) {
             return response()->json(['erro' => $e->getMessage()], 400);
         }
     }
     
-    public function perfil(Request $request)
-    {
-        try{
+    public function perfil(Request $request) {
+        try {
             $userLogado = TokenController::getUser($request);
-            $aluno = Aluno::where('user_id', $userLogado->id)->with('user', 'reservas')->first();
-    
-            if(is_null($aluno)) {
-                return response()->json([
-                    'erro' => 'Aluno não encontrado'
-                ], 404);
-            }
+            $aluno = $this->service->buscarPerfil($userLogado->id);
             return response()->json($aluno);
         }
-        catch (\Exception $e) 
-        {
+        catch (ResponseException $e) {
+            return response()->json($e->getErro(), 400);
+        }
+        catch (\Exception $e) {
             return response()->json(['erro' => $e->getMessage()], 400);
         }
     }
 
-    public function update(int $id, Request $request)
-    {
-        try{
+    public function update(int $id, Request $request) {
+        try {
             $this->validate($request, [
                 'nome' => 'required',
                 'data_nascimento' => 'required|date_format:d/m/Y|before:today',
                 'turma' => 'required|regex:/^\d{1}-[A-Z]{1}$/',
             ]);
     
-            $aluno = Aluno::find($id);
-            if(is_null($aluno)) {
-                return response()->json([
-                    'erro' => 'Aluno não encontrado'
-                ], 404);
-            }
-    
-            $aluno->fill([
-                'nome' => $request->nome,
-                'data_nascimento' => $request->data_nascimento,
-                'turma' => $request->turma
-            ]);
-            $aluno->save();
-    
-            return $aluno;
+            return $this->service->editar($id, $request);
         }
-        catch (ValidationException $e) 
-        {
+        catch (ValidationException $e) {
             DB::rollback();
             return response()->json($e->response->original, 422);
         }
-        catch (\Exception $e) 
-        {
+        catch (ResponseException $e) {
+            DB::rollback();
+            return response()->json($e->getErro(), 422);
+        }
+        catch (\Exception $e) {
+            DB::rollback();
             return response()->json(['erro' => $e->getMessage()], 400);
         }
     }
@@ -146,34 +109,19 @@ class AlunoController extends Controller
     public function destroy(int $id)
     {
         try { 
-            DB::beginTransaction();
-
-            $aluno = Aluno::find($id);
-            if(is_null($aluno)) {
-                throw new Exception('Aluno não encontrado');
-            }
-
-            if(count($aluno->reservas) != 0) {
-                return response()->json([
-                    'erro' => 'O aluno possui reservas e não pode ser removido'
-                ], 400);
-            }
-
-            $aluno->user->delete();
-
-            DB::commit();
+           $this->service->excluir($id);
 
             return response()->json([
                 'sucesso' => 'Aluno removido com sucesso'
             ], 200); 
         }
-        
-        catch (\Exception $e) 
-        {
+        catch (ResponseException $e) {
             DB::rollback();
-            return response()->json([
-                'erro' => $e->getMessage(),
-            ], 400);
+            return response()->json($e->getErro(), 400);
+        }
+        catch (\Exception $e) {
+            DB::rollback();
+            return response()->json(['erro' => $e->getMessage()], 400);
         }
     }
 

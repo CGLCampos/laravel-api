@@ -26,7 +26,7 @@ class ReservaController extends Controller
 
             $this->validate($request, [
                 'aluno_id' => 'required',
-                'livros_reservados' => 'required|array|min:1|max:3',
+                'livros_reservados' => 'array|min:1|max:3',
             ]);
 
             DB::beginTransaction();
